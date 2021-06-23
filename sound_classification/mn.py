@@ -2,14 +2,12 @@ from torch import nn, Tensor
 import torch.nn.functional as F
 from math import ceil
 
-cfg = {
-    'A' : [256, 'M', 256, 'M'],
-    'B' : [128, 'M', 128, 'M', 256, 'M', 512, 'M'],
-    'C' : [64,  'M', 64,  64,  'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512],
-    'D' : [64,  'M', 64,  64,  64,  64,  'M', 128, 128, 128, 128, 'M', 256, 256,
-        256, 256, 'M', 512, 512, 512, 512],
-    'E' : [48,  'M', 48,  48,  48,  'M', 96,  96,  96,  96,  'M', 192, 192, 192,
-        192, 192, 192, 'M', 384, 384, 384]
+cfgs = {
+    'A' : [256, 'M', 256,                'M'],
+    'B' : [128, 'M', 128,                'M', 256,                'M', 512,                          'M'],
+    'C' : [64,  'M', 64,  64,            'M', 128, 128,           'M', 256, 256, 256,                'M', 512, 512],
+    'D' : [64,  'M', 64,  64,  64,  64,  'M', 128, 128, 128, 128, 'M', 256, 256, 256, 256,           'M', 512, 512, 512, 512],
+    'E' : [48,  'M', 48,  48,  48,       'M', 96,  96,  96,  96,  'M', 192, 192, 192, 192, 192, 192, 'M', 384, 384, 384]
 }
 
 def _same_padding(x:Tensor, kernel_size:int, stride:int):
@@ -109,16 +107,16 @@ class Mn(nn.Module):
         return F.softmax(x, dim=-1)
 
 def M3(num_classes:int=2):
-    return Mn(cfg['A'], num_classes, False)
+    return Mn(cfgs['A'], num_classes, False)
 
 def M5(num_classes:int=2):
-    return Mn(cfg['B'], num_classes, False)
+    return Mn(cfgs['B'], num_classes, False)
 
 def M11(num_classes:int=2):
-    return Mn(cfg['C'], num_classes, False)
+    return Mn(cfgs['C'], num_classes, False)
 
 def M18(num_classes:int=2):
-    return Mn(cfg['D'], num_classes, False)
+    return Mn(cfgs['D'], num_classes, False)
 
 def M34_res(num_classes:int=2):
-    return Mn(cfg['E'], num_classes, True)
+    return Mn(cfgs['E'], num_classes, True)
