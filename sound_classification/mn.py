@@ -10,34 +10,44 @@ cfgs = {
     'E' : [48,  'M', 48,  48,  48,       'M', 96,  96,  96,  96,  'M', 192, 192, 192, 192, 192, 192, 'M', 384, 384, 384]
 }
 
-def _same_padding(x:Tensor, kernel_size:int, stride:int):
+def _same_padding(x:Tensor, kernel_size:int, stride:int, causal:bool=True):
     in_len = x.shape[-1]
     out_len = ceil(in_len / stride)
     pad_width = max(0, (out_len - 1) * stride + kernel_size - in_len)
-    pad_left = pad_width // 2
-    pad_right = pad_width - pad_left
+    if causal is True:
+        pad_left = pad_width
+        pad_right = 0
+    elif causal is False:
+        pad_left = pad_width // 2
+        pad_right = pad_width - pad_left
     return F.pad(x, (pad_left, pad_right))
 
 class BasicBlock(nn.Module):
     def __init__(self, in_channels:int, out_channels:int, kernel_size:int=3,
-        stride:int=1):
+        stride:int=1, causal:bool=True):
         super(BasicBlock, self).__init__()
         self.kernel_size = kernel_size
         self.stride = stride
+        self.causal = causal
         self.conv = nn.Conv1d(in_channels, out_channels, kernel_size, stride)
         self.bn = nn.BatchNorm1d(out_channels)
 
     def forward(self, x:Tensor):
-        x = _same_padding(x, self.kernel_size, self.stride)
+        x = _same_padding(x, self.kernel_size, self.stride, self.causal)
         x = F.relu(self.bn(self.conv(x)))
         return x
 
 class ResBlock(nn.Module):
     def __init__(self, in_channels:int, out_channels:int, kernel_size:int=3,
-        stride:int=1):
+        stride:int=1, causal:bool=True):
         super(ResBlock, self).__init__()
         self.kernel_size = kernel_size
         self.stride = stride
+        self.causal = causal
+        self.conv1 = nn.Conv1d(in_channels, out_channels, kernel_size, stride)
+        self.bn1 = nn.BatchNorm1d(out_channels)
+        self.conv2 = nn.Conv1d(out_channels, out_channels, kernel_size, stride)
+        self.bn2 = nn.BatchNorm1d(out_channels)
         if stride != 1 or in_channels != out_channels:
             self.downsample = nn.Sequential(*[
                 nn.Conv1d(in_channels, out_channels, 1, stride),
@@ -45,35 +55,27 @@ class ResBlock(nn.Module):
             ])
         else:
             self.downsample = None
-        self.conv1 = nn.Conv1d(in_channels, out_channels, kernel_size, stride)
-        self.bn1 = nn.BatchNorm1d(out_channels)
-        self.conv2 = nn.Conv1d(out_channels, out_channels, kernel_size, stride)
-        self.bn2 = nn.BatchNorm1d(out_channels)
-        if stride != 1:
-            self.downsample = nn.Sequential(*[
-                nn.Conv1d(in_channels, out_channels, 1, stride),
-                nn.BatchNorm1d(out_channels)
-            ])
 
     def forward(self, x):
         residual = x
-        x = _same_padding(x, self.kernel_size, self.stride)
+        x = _same_padding(x, self.kernel_size, self.stride, self.causal)
         x = F.relu(self.bn1(self.conv1(x)))
-        x = _same_padding(x, self.kernel_size, self.stride)
-        x = F.relu(self.bn2(self.conv2(x)))
-        if self.downsample:
-            residual = _same_padding(residual, 1, self.stride)
+        x = _same_padding(x, self.kernel_size, self.stride, self.causal)
+        x = self.bn2(self.conv2(x))
+        if self.downsample is not None:
+            residual = _same_padding(residual, 1, self.stride, self.causal)
             residual = self.downsample(residual)
-        x = x + residual
+        x = F.relu(x + residual)
         return x
 
-def _make_layers(cfg:list, in_channels:int=1, residual:bool=False):
+def _make_layers(cfg:list, in_channels:int=1, residual:bool=False,
+    causal:bool=True):
     layers = []
     kernel_size = 80
     stride = 4
     for i, l in enumerate(cfg):
         if i == 0:
-            layers.append(BasicBlock(in_channels, l, 80, 4))
+            layers.append(BasicBlock(in_channels, l, 80, 4, causal))
             kernel_size = 3
             stride = 1
             in_channels = l
@@ -82,21 +84,23 @@ def _make_layers(cfg:list, in_channels:int=1, residual:bool=False):
                 layers.append(nn.MaxPool1d(4))
             else:
                 if residual:
-                    layers.append(ResBlock(in_channels, l, kernel_size, stride))
+                    layers.append(ResBlock(in_channels, l, kernel_size, stride,
+                        causal))
                 else:
                     layers.append(BasicBlock(in_channels, l, kernel_size,
-                        stride))
+                        stride, causal))
                 in_channels = l
     return nn.Sequential(*layers)
 
 class Mn(nn.Module):
-    def __init__(self, cfg:list, num_classes:int=2, residual:bool=False):
+    def __init__(self, cfg:list, num_classes:int=2, residual:bool=False,
+        causal:bool=True):
         super(Mn, self).__init__()
         if type(cfg[-1]) == str:
             in_features = cfg[-2]
         else:
             in_features = cfg[-1]
-        self.features = _make_layers(cfg, 1, residual)
+        self.features = _make_layers(cfg, 1, residual, causal)
         self.classifier = nn.Linear(in_features, num_classes)
 
     def forward(self, x:Tensor):
@@ -106,17 +110,17 @@ class Mn(nn.Module):
         x = self.classifier(x)
         return F.softmax(x, dim=-1)
 
-def M3(num_classes:int=2):
-    return Mn(cfgs['A'], num_classes, False)
+def M3(num_classes:int=2, causal:bool=True):
+    return Mn(cfgs['A'], num_classes, False, causal)
 
-def M5(num_classes:int=2):
-    return Mn(cfgs['B'], num_classes, False)
+def M5(num_classes:int=2, causal:bool=True):
+    return Mn(cfgs['B'], num_classes, False, causal)
 
-def M11(num_classes:int=2):
-    return Mn(cfgs['C'], num_classes, False)
+def M11(num_classes:int=2, causal:bool=True):
+    return Mn(cfgs['C'], num_classes, False, causal)
 
-def M18(num_classes:int=2):
-    return Mn(cfgs['D'], num_classes, False)
+def M18(num_classes:int=2, causal:bool=True):
+    return Mn(cfgs['D'], num_classes, False, causal)
 
-def M34_res(num_classes:int=2):
-    return Mn(cfgs['E'], num_classes, True)
+def M34_res(num_classes:int=2, causal:bool=True):
+    return Mn(cfgs['E'], num_classes, True, causal)
