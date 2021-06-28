@@ -10,7 +10,7 @@ class Conformer(nn.Module):
         in_channels : int = 1,
         d_model : int = 64,
         num_conformer_blocks : int = 1,
-        subsampling_kernel_size : int = 88,
+        subsampling_kernel_size : int = 80,
         subsampling_stride : int = 4,
         subsampling_dropout : float = 0.1,
         ffn_expansion : int = 4,
@@ -19,7 +19,6 @@ class Conformer(nn.Module):
         mhsa_max_len : int = 5000,
         mhsa_dropout : float = 0.1,
         conv_kernel_size : int = 7,
-        conv_expansion : int = 1,
         conv_dropout : float = 0.1,
         lstm_num_layers : int = 1,
         lstm_dropout : float = 0.):
@@ -39,8 +38,7 @@ class Conformer(nn.Module):
             conformer_blocks += [
                 FeedForwardModule(d_model, ffn_expansion, ffn_dropout),
                 MHSAModule(d_model, mhsa_num_heads, mhsa_max_len, mhsa_dropout),
-                ConvModule(d_model, conv_kernel_size, conv_expansion,
-                    conv_dropout),
+                ConvModule(d_model, conv_kernel_size, conv_dropout),
                 FeedForwardModule(d_model, ffn_expansion, ffn_dropout),
                 nn.LayerNorm(d_model)
             ]
@@ -58,13 +56,12 @@ class Conformer(nn.Module):
 class FeedForwardModule(nn.Module):
     def __init__(self, d_model:int, expansion:int=4, dropout:float=0.1):
         super(FeedForwardModule, self).__init__()
-        d_ff = d_model * expansion
         self.ffn_block = nn.Sequential(
             nn.LayerNorm(d_model),
-            nn.Linear(d_model, d_ff),
+            nn.Linear(d_model, d_model*expansion),
             Swish(),
             nn.Dropout(dropout),
-            nn.Linear(d_ff, d_model),
+            nn.Linear(d_model*expansion, d_model),
             nn.Dropout(dropout)
         )
 
@@ -96,19 +93,17 @@ class MHSAModule(nn.Module):
         return x + residual
 
 class ConvModule(nn.Module):
-    def __init__(self, d_model:int, kernel_size:int, expansion:int=1,
-        dropout:float=0.1):
+    def __init__(self, d_model:int, kernel_size:int, dropout:float=0.1):
         super(ConvModule, self).__init__()
-        d_conv = d_model * expansion
         self.layer_norm = nn.LayerNorm(d_model)
         self.conv_block = nn.Sequential(
-            nn.Conv1d(d_model, d_conv*2, 1),
+            nn.Conv1d(d_model, d_model*2, 1),
             GLU(),
             SamePadding(kernel_size, 1),
-            nn.Conv1d(d_conv, d_conv, kernel_size, groups=d_conv),
+            nn.Conv1d(d_model, d_model, kernel_size, groups=d_model),
             nn.BatchNorm1d(d_model),
             Swish(),
-            nn.Conv1d(d_conv, d_model, 1),
+            nn.Conv1d(d_model, d_model, 1),
             nn.Dropout(dropout)
         )
 
